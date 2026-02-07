@@ -4,8 +4,11 @@ Receives live transcripts from Omi and returns translations + follow-up suggesti
 """
 
 import os
+import httpx
+import base64
+import re
 from fastapi import FastAPI, Request, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 from typing import Optional
 import openai
@@ -14,6 +17,39 @@ from prompts import REALTIME_SYSTEM_PROMPT
 # Initialize
 app = FastAPI(title="Bilingual Conversation Coach")
 client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+# TTS Configuration
+KOKORO_TTS_URL = os.getenv("KOKORO_TTS_URL", "http://localhost:8880")
+
+
+async def generate_tts(text: str, voice: str = "bf_isabella") -> bytes | None:
+    """
+    Generate speech audio from text using Kokoro TTS.
+
+    Voices for Brazilian Portuguese:
+    - bf_isabella (female)
+    - bm_lucas (male)
+    - bf_camila (female)
+    """
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as http_client:
+            response = await http_client.post(
+                f"{KOKORO_TTS_URL}/v1/audio/speech",
+                json={
+                    "model": "kokoro",
+                    "input": text,
+                    "voice": voice,
+                    "response_format": "mp3"
+                }
+            )
+            if response.status_code == 200:
+                return response.content
+            else:
+                print(f"TTS error: {response.status_code} - {response.text}")
+                return None
+    except Exception as e:
+        print(f"TTS connection error: {e}")
+        return None
 
 # Store recent context for better suggestions
 conversation_context = []
@@ -141,6 +177,48 @@ async def handle_memory_created(request: Request):
     conversation_context.clear()
 
     return JSONResponse({"status": "received"})
+
+
+@app.post("/tts")
+async def text_to_speech(request: Request):
+    """
+    Generate Brazilian Portuguese audio for a phrase.
+
+    POST /tts
+    {"text": "Como você está?", "voice": "bf_isabella"}
+
+    Returns: MP3 audio
+    """
+    data = await request.json()
+    text = data.get("text", "")
+    voice = data.get("voice", "bf_isabella")  # Default to female Brazilian voice
+
+    if not text:
+        raise HTTPException(status_code=400, detail="No text provided")
+
+    print(f"Generating TTS for: {text}")
+    audio = await generate_tts(text, voice)
+
+    if audio:
+        return Response(content=audio, media_type="audio/mpeg")
+    else:
+        raise HTTPException(status_code=503, detail="TTS service unavailable")
+
+
+@app.get("/tts/test")
+async def test_tts():
+    """Test TTS with a sample phrase."""
+    test_phrase = "Olá, como você está hoje?"
+    audio = await generate_tts(test_phrase)
+
+    if audio:
+        return Response(content=audio, media_type="audio/mpeg")
+    else:
+        return JSONResponse({
+            "error": "TTS unavailable",
+            "kokoro_url": KOKORO_TTS_URL,
+            "hint": "Set KOKORO_TTS_URL env variable to your Kokoro endpoint"
+        }, status_code=503)
 
 
 if __name__ == "__main__":
