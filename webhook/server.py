@@ -70,14 +70,16 @@ def extract_portuguese_phrase(suggestion: str) -> str | None:
     return None
 
 
-async def generate_tts(text: str, voice: str = "bf_isabella") -> bytes | None:
+async def generate_tts(text: str, voice: str = "bf_emma") -> bytes | None:
     """
     Generate speech audio from text using Kokoro TTS.
 
     Voices for Brazilian Portuguese:
-    - bf_isabella (female)
-    - bm_lucas (male)
-    - bf_camila (female)
+    - bf_emma (female)
+    - bf_alice (female)
+    - bf_lily (female)
+    - bm_daniel (male)
+    - bm_george (male)
     """
     try:
         async with httpx.AsyncClient(timeout=30.0) as http_client:
@@ -266,7 +268,7 @@ async def text_to_speech(request: Request):
     """
     data = await request.json()
     text = data.get("text", "")
-    voice = data.get("voice", "bf_isabella")  # Default to female Brazilian voice
+    voice = data.get("voice", "bf_emma")  # Default to female Brazilian voice
 
     if not text:
         raise HTTPException(status_code=400, detail="No text provided")
