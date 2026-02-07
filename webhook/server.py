@@ -490,6 +490,39 @@ async def dashboard():
             0%, 100% { opacity: 1; }
             50% { opacity: 0.5; }
         }
+        .controls {
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        .toggle-btn {
+            padding: 10px 20px;
+            background: rgba(255,255,255,0.1);
+            color: #fff;
+            border: 2px solid #4ade80;
+            border-radius: 20px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: all 0.3s;
+        }
+        .toggle-btn.active {
+            background: #4ade80;
+            color: #000;
+        }
+        .toggle-btn:hover { opacity: 0.8; }
+        .new-audio {
+            animation: glow 1s ease-in-out;
+        }
+        @keyframes glow {
+            0%, 100% { box-shadow: 0 0 0 rgba(74, 222, 128, 0); }
+            50% { box-shadow: 0 0 30px rgba(74, 222, 128, 0.8); }
+        }
+        .now-playing {
+            background: rgba(74, 222, 128, 0.2);
+            border-left-color: #fbbf24;
+        }
     </style>
 </head>
 <body>
@@ -508,14 +541,30 @@ async def dashboard():
             </div>
         </div>
 
-        <button class="refresh-btn" onclick="loadConversations()">
-            <span class="live-indicator"></span> Refresh
-        </button>
+        <div class="controls">
+            <button class="toggle-btn active" id="autoplay-btn" onclick="toggleAutoplay()">
+                🔊 Auto-Play ON
+            </button>
+            <button class="refresh-btn" onclick="loadConversations()">
+                <span class="live-indicator"></span> Refresh
+            </button>
+        </div>
 
         <div id="conversations"></div>
     </div>
 
     <script>
+        let autoplayEnabled = true;
+        let lastSeenId = null;
+        let currentAudio = null;
+
+        function toggleAutoplay() {
+            autoplayEnabled = !autoplayEnabled;
+            const btn = document.getElementById('autoplay-btn');
+            btn.textContent = autoplayEnabled ? '🔊 Auto-Play ON' : '🔇 Auto-Play OFF';
+            btn.classList.toggle('active', autoplayEnabled);
+        }
+
         async function loadConversations() {
             try {
                 const res = await fetch('/api/conversations');
@@ -532,8 +581,16 @@ async def dashboard():
                     return;
                 }
 
-                container.innerHTML = data.conversations.map(conv => `
-                    <div class="conversation">
+                // Check for new conversation with audio
+                const newest = data.conversations[0];
+                if (newest && newest.id !== lastSeenId && newest.audio_url && autoplayEnabled) {
+                    // New conversation with audio - will auto-play after render
+                    setTimeout(() => playNewestAudio(newest.id), 100);
+                }
+                lastSeenId = newest?.id;
+
+                container.innerHTML = data.conversations.map((conv, idx) => `
+                    <div class="conversation" id="conv-${conv.id}" ${idx === 0 ? 'data-newest="true"' : ''}>
                         <div class="time">${new Date(conv.timestamp).toLocaleString()}</div>
                         <div class="original">${escapeHtml(conv.original)}</div>
                         <div class="suggestion">${formatSuggestion(conv.suggestion)}</div>
@@ -542,7 +599,8 @@ async def dashboard():
                         ` : ''}
                         ${conv.audio_url ? `
                             <div class="audio-player">
-                                <audio controls src="${conv.audio_url}"></audio>
+                                <audio id="audio-${conv.id}" controls src="${conv.audio_url}"
+                                    onplay="onAudioPlay('${conv.id}')" onended="onAudioEnd('${conv.id}')"></audio>
                             </div>
                         ` : '<div class="no-audio">No audio generated</div>'}
                     </div>
@@ -550,6 +608,34 @@ async def dashboard():
             } catch (err) {
                 console.error('Failed to load:', err);
             }
+        }
+
+        function playNewestAudio(id) {
+            const audio = document.getElementById('audio-' + id);
+            if (audio) {
+                // Stop any currently playing audio
+                if (currentAudio && currentAudio !== audio) {
+                    currentAudio.pause();
+                }
+                audio.play().catch(e => console.log('Autoplay blocked:', e));
+                currentAudio = audio;
+
+                // Highlight the conversation
+                const conv = document.getElementById('conv-' + id);
+                if (conv) {
+                    conv.classList.add('new-audio');
+                }
+            }
+        }
+
+        function onAudioPlay(id) {
+            const conv = document.getElementById('conv-' + id);
+            if (conv) conv.classList.add('now-playing');
+        }
+
+        function onAudioEnd(id) {
+            const conv = document.getElementById('conv-' + id);
+            if (conv) conv.classList.remove('now-playing');
         }
 
         function escapeHtml(text) {
@@ -568,8 +654,8 @@ async def dashboard():
         // Load on start
         loadConversations();
 
-        // Auto-refresh every 10 seconds
-        setInterval(loadConversations, 10000);
+        // Auto-refresh every 3 seconds for real-time feel
+        setInterval(loadConversations, 3000);
     </script>
 </body>
 </html>
