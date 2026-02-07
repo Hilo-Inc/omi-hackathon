@@ -5,8 +5,10 @@ Receives live transcripts from Omi and returns translations + follow-up suggesti
 
 import os
 import httpx
-import base64
+import uuid
 import re
+import asyncio
+from datetime import datetime, timedelta
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
@@ -20,6 +22,52 @@ client = openai.OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 # TTS Configuration
 KOKORO_TTS_URL = os.getenv("KOKORO_TTS_URL", "http://localhost:8880")
+BASE_URL = os.getenv("BASE_URL", "https://omi.apps.hilo.ca")
+
+# Audio storage (in-memory, clears on restart)
+audio_cache: dict[str, dict] = {}
+AUDIO_EXPIRY_MINUTES = 30
+
+
+def cleanup_old_audio():
+    """Remove audio older than expiry time."""
+    now = datetime.now()
+    expired = [k for k, v in audio_cache.items()
+               if now - v["created"] > timedelta(minutes=AUDIO_EXPIRY_MINUTES)]
+    for k in expired:
+        del audio_cache[k]
+
+
+def extract_portuguese_phrase(suggestion: str) -> str | None:
+    """Extract the Portuguese follow-up phrase from the AI suggestion."""
+    # Look for patterns like:
+    # 💬 Say: "O que você mais sente falta dela?"
+    # The Portuguese phrase is in quotes after "Say:"
+
+    patterns = [
+        r'Say:\s*"([^"]+)"',   # Primary format: Say: "..."
+        r'💬\s*Say:\s*"([^"]+)"',
+        r'💬[^"]*"([^"]+)"',   # Fallback: 💬 followed by quoted text
+        r'Ask:\s*"([^"]+)"',
+        r'Try:\s*"([^"]+)"',
+    ]
+
+    for pattern in patterns:
+        match = re.search(pattern, suggestion)
+        if match:
+            phrase = match.group(1)
+            # Check if it's Portuguese (not the English translation in parentheses)
+            # Portuguese phrases typically have these markers
+            portuguese_markers = ['você', 'como', 'que', 'isso', 'muito', 'para', 'mais',
+                                  'está', 'isso', 'fazer', 'pode', 'seu', 'sua', 'ter',
+                                  'ser', 'uma', 'não', 'sim', 'bem']
+            has_accents = any(c in phrase for c in 'áàâãéêíóôõúçÁÀÂÃÉÊÍÓÔÕÚÇ')
+            has_portuguese_words = any(w in phrase.lower() for w in portuguese_markers)
+
+            if has_accents or has_portuguese_words:
+                return phrase
+
+    return None
 
 
 async def generate_tts(text: str, voice: str = "bf_isabella") -> bytes | None:
@@ -133,9 +181,36 @@ async def handle_transcript(request: Request):
 
         print(f"Suggestion: {suggestion}")
 
+        # Generate TTS for the Portuguese phrase
+        portuguese_phrase = extract_portuguese_phrase(suggestion)
+        audio_url = None
+
+        if portuguese_phrase:
+            print(f"Generating audio for: {portuguese_phrase}")
+            audio_data = await generate_tts(portuguese_phrase)
+
+            if audio_data:
+                # Store audio with unique ID
+                audio_id = str(uuid.uuid4())[:8]
+                audio_cache[audio_id] = {
+                    "audio": audio_data,
+                    "phrase": portuguese_phrase,
+                    "created": datetime.now()
+                }
+                audio_url = f"{BASE_URL}/audio/{audio_id}"
+                print(f"Audio stored: {audio_url}")
+
+                # Cleanup old audio periodically
+                cleanup_old_audio()
+
+        # Build response message
+        message = suggestion
+        if audio_url:
+            message += f"\n🔊 Hear it: {audio_url}"
+
         return JSONResponse({
-            "message": suggestion,
-            "notify": True  # Show as notification
+            "message": message,
+            "notify": True
         })
 
     except Exception as e:
@@ -219,6 +294,42 @@ async def test_tts():
             "kokoro_url": KOKORO_TTS_URL,
             "hint": "Set KOKORO_TTS_URL env variable to your Kokoro endpoint"
         }, status_code=503)
+
+
+@app.get("/audio/{audio_id}")
+async def get_audio(audio_id: str):
+    """
+    Serve stored audio by ID.
+
+    Example: GET /audio/abc123
+    Returns: MP3 audio file
+    """
+    if audio_id not in audio_cache:
+        raise HTTPException(status_code=404, detail="Audio not found or expired")
+
+    audio_data = audio_cache[audio_id]
+    return Response(
+        content=audio_data["audio"],
+        media_type="audio/mpeg",
+        headers={
+            "Content-Disposition": f'inline; filename="phrase-{audio_id}.mp3"'
+        }
+    )
+
+
+@app.get("/audio/{audio_id}/info")
+async def get_audio_info(audio_id: str):
+    """Get info about stored audio."""
+    if audio_id not in audio_cache:
+        raise HTTPException(status_code=404, detail="Audio not found or expired")
+
+    audio_data = audio_cache[audio_id]
+    return {
+        "id": audio_id,
+        "phrase": audio_data["phrase"],
+        "created": audio_data["created"].isoformat(),
+        "url": f"{BASE_URL}/audio/{audio_id}"
+    }
 
 
 if __name__ == "__main__":
