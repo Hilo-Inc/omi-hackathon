@@ -1,0 +1,89 @@
+{
+  "permissions": {
+    "hooks": {
+      "Notification": [
+        {
+          "hooks": [
+            {
+              "type": "command",
+              "command": "powershell -ExecutionPolicy Bypass -File \".claude\\scripts\\notify-input-hook.ps1\"",
+              "timeout": 10
+            }
+          ]
+        }
+      ]
+    },
+    "allow": [
+      "Bash(dir:*)",
+      "Bash(git init:*)",
+      "Bash(npx create-next-app@latest:*)",
+      "Bash(npx shadcn@latest init:*)",
+      "Bash(npx shadcn@latest add button card dialog input scroll-area separator badge dropdown-menu tooltip -y)",
+      "Bash(npm install:*)",
+      "Bash(flutter:*)",
+      "Bash(git branch:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(npm run db:push:*)",
+      "Bash(npx drizzle-kit:*)",
+      "Bash(npm run build:*)",
+      "mcp__chrome-devtools__navigate_page",
+      "mcp__chrome-devtools__take_snapshot",
+      "mcp__chrome-devtools__list_network_requests",
+      "mcp__chrome-devtools__get_network_request",
+      "mcp__chrome-devtools__click",
+      "Bash(powershell -Command \"[System.IO.File]::ReadAllText\\(''conversations.json''\\).Substring\\(0, 5000\\)\")",
+      "Bash(powershell:*)",
+      "Bash(node -e:*)",
+      "Bash(npx tsc:*)",
+      "mcp__chrome-devtools__list_pages",
+      "mcp__chrome-devtools__list_console_messages",
+      "Bash(git push:*)",
+      "Bash(npm run type-check:*)",
+      "WebSearch",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(find:*)",
+      "Bash(python:*)",
+      "WebFetch(domain:claude.ai)",
+      "WebFetch(domain:chatgpt.com)",
+      "WebFetch(domain:g.co)",
+      "WebFetch(domain:pub.dev)",
+      "Bash(NEXT_PHASE=phase-production-build npm run build:*)",
+      "Bash(set \"NEXT_PHASE=phase-production-build\")",
+      "Bash(npm run db:generate:*)",
+      "Bash(sqlite3:*)",
+      "mcp__chrome-devtools__new_page",
+      "Bash(npm run dev:*)",
+      "mcp__chrome-devtools__upload_file",
+      "mcp__chrome-devtools__take_screenshot",
+      "Bash(netstat:*)",
+      "Bash(findstr:*)",
+      "WebFetch(domain:www.markdownguide.org)",
+      "mcp__chrome-devtools__evaluate_script",
+      "Bash(npm list:*)",
+      "mcp__chrome-devtools__press_key",
+      "WebFetch(domain:ui.shadcn.com)",
+      "Bash(dart run build_runner build:*)",
+      "Bash(git reset:*)",
+      "Bash(ls -la \"C:\\\\dev\\\\ChatUp\\\\tasks\"\" 2>/dev/null || mkdir -p \"C:devChatUptasks\" && echo \"Created tasks directory \")",
+      "Bash(npm run lint)",
+      "Bash(grep:*)",
+      "WebFetch(domain:platform.openai.com)",
+      "WebFetch(domain:openai.com)",
+      "WebFetch(domain:costgoat.com)",
+      "mcp__chrome-devtools__hover",
+      "mcp__chrome-devtools__fill",
+      "Bash(ss:*)",
+      "Bash(curl:*)",
+      "Bash(for i in 1 2 3 4 5 6 7 8 9 10)",
+      "Bash(do echo \"Waiting... $i\")",
+      "Bash(done)",
+      "mcp__chrome-devtools__get_console_message",
+      "Bash(python3:*)",
+      "Bash(taskkill //F //PID 45536)",
+      "mcp__chrome-devtools__handle_dialog",
+      "mcp__chrome-devtools__wait_for"
+    ]
+  }
+}
