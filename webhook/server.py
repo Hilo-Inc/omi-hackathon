@@ -7,10 +7,10 @@ import os
 import httpx
 import uuid
 import re
-import asyncio
+import json
 from datetime import datetime, timedelta
 from fastapi import FastAPI, Request, HTTPException
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import JSONResponse, Response, HTMLResponse
 from pydantic import BaseModel
 from typing import Optional
 import openai
@@ -27,6 +27,10 @@ BASE_URL = os.getenv("BASE_URL", "https://omi.apps.hilo.ca")
 # Audio storage (in-memory, clears on restart)
 audio_cache: dict[str, dict] = {}
 AUDIO_EXPIRY_MINUTES = 30
+
+# Conversation history storage
+conversation_history: list[dict] = []
+MAX_HISTORY = 100
 
 
 def cleanup_old_audio():
@@ -70,16 +74,17 @@ def extract_portuguese_phrase(suggestion: str) -> str | None:
     return None
 
 
-async def generate_tts(text: str, voice: str = "bf_emma") -> bytes | None:
+async def generate_tts(text: str, voice: str = "pf_dora") -> bytes | None:
     """
     Generate speech audio from text using Kokoro TTS.
 
-    Voices for Brazilian Portuguese:
-    - bf_emma (female)
-    - bf_alice (female)
-    - bf_lily (female)
-    - bm_daniel (male)
-    - bm_george (male)
+    Voices for Brazilian Portuguese (p = Portuguese):
+    - pf_dora (female) - recommended
+    - pm_alex (male)
+    - pm_santa (male)
+
+    Voice naming: [lang][gender]_[name]
+    p = Portuguese, b = British, a = American, f = female, m = male
     """
     try:
         async with httpx.AsyncClient(timeout=30.0) as http_client:
@@ -205,10 +210,30 @@ async def handle_transcript(request: Request):
                 # Cleanup old audio periodically
                 cleanup_old_audio()
 
-        # Build response message
+        # Build response message - keep it short, Omi may truncate
         message = suggestion
         if audio_url:
-            message += f"\n🔊 Hear it: {audio_url}"
+            # Short format to avoid truncation
+            short_id = audio_url.split("/")[-1]
+            message += f"\n🔊 omi.apps.hilo.ca/audio/{short_id}"
+
+        print(f"=== FULL RESPONSE ===")
+        print(f"{message}")
+        print(f"=====================")
+
+        # Store in conversation history
+        conversation_history.append({
+            "id": str(uuid.uuid4())[:8],
+            "timestamp": datetime.now().isoformat(),
+            "original": transcript,
+            "suggestion": suggestion,
+            "portuguese_phrase": portuguese_phrase,
+            "audio_url": audio_url,
+        })
+
+        # Keep history bounded
+        while len(conversation_history) > MAX_HISTORY:
+            conversation_history.pop(0)
 
         return JSONResponse({
             "message": message,
@@ -268,7 +293,7 @@ async def text_to_speech(request: Request):
     """
     data = await request.json()
     text = data.get("text", "")
-    voice = data.get("voice", "bf_emma")  # Default to female Brazilian voice
+    voice = data.get("voice", "pf_dora")  # Default to Brazilian Portuguese female
 
     if not text:
         raise HTTPException(status_code=400, detail="No text provided")
@@ -332,6 +357,224 @@ async def get_audio_info(audio_id: str):
         "created": audio_data["created"].isoformat(),
         "url": f"{BASE_URL}/audio/{audio_id}"
     }
+
+
+# ============== UI ==============
+
+@app.get("/api/conversations")
+async def get_conversations():
+    """Get conversation history."""
+    return {"conversations": list(reversed(conversation_history))}
+
+
+@app.get("/ui", response_class=HTMLResponse)
+async def dashboard():
+    """Simple dashboard UI showing conversations and audio."""
+    html = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bilingual Coach - Dashboard</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            min-height: 100vh;
+            color: #fff;
+            padding: 20px;
+        }
+        .container { max-width: 800px; margin: 0 auto; }
+        h1 {
+            text-align: center;
+            margin-bottom: 10px;
+            font-size: 2em;
+        }
+        .subtitle {
+            text-align: center;
+            color: #888;
+            margin-bottom: 30px;
+        }
+        .stats {
+            display: flex;
+            gap: 20px;
+            justify-content: center;
+            margin-bottom: 30px;
+        }
+        .stat {
+            background: rgba(255,255,255,0.1);
+            padding: 15px 25px;
+            border-radius: 10px;
+            text-align: center;
+        }
+        .stat-value { font-size: 2em; font-weight: bold; color: #4ade80; }
+        .stat-label { color: #888; font-size: 0.9em; }
+        .conversation {
+            background: rgba(255,255,255,0.05);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 15px;
+            border-left: 4px solid #4ade80;
+        }
+        .conversation:hover { background: rgba(255,255,255,0.08); }
+        .time {
+            color: #666;
+            font-size: 0.8em;
+            margin-bottom: 10px;
+        }
+        .original {
+            color: #fbbf24;
+            font-size: 1.1em;
+            margin-bottom: 10px;
+        }
+        .original::before { content: '🇧🇷 '; }
+        .translation {
+            color: #94a3b8;
+            margin-bottom: 10px;
+            padding-left: 20px;
+            border-left: 2px solid #333;
+        }
+        .suggestion {
+            background: rgba(74, 222, 128, 0.1);
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 10px;
+        }
+        .portuguese-phrase {
+            color: #4ade80;
+            font-size: 1.1em;
+            font-weight: 500;
+        }
+        .audio-player {
+            margin-top: 10px;
+        }
+        audio {
+            width: 100%;
+            height: 40px;
+            border-radius: 20px;
+        }
+        .no-audio {
+            color: #666;
+            font-style: italic;
+            font-size: 0.9em;
+        }
+        .empty {
+            text-align: center;
+            padding: 60px;
+            color: #666;
+        }
+        .refresh-btn {
+            display: block;
+            margin: 0 auto 30px;
+            padding: 10px 30px;
+            background: #4ade80;
+            color: #000;
+            border: none;
+            border-radius: 20px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        .refresh-btn:hover { background: #22c55e; }
+        .live-indicator {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            background: #4ade80;
+            border-radius: 50%;
+            margin-right: 8px;
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🗣️ Bilingual Coach</h1>
+        <p class="subtitle">English ↔ Brazilian Portuguese</p>
+
+        <div class="stats">
+            <div class="stat">
+                <div class="stat-value" id="total-count">-</div>
+                <div class="stat-label">Conversations</div>
+            </div>
+            <div class="stat">
+                <div class="stat-value" id="audio-count">-</div>
+                <div class="stat-label">Audio Generated</div>
+            </div>
+        </div>
+
+        <button class="refresh-btn" onclick="loadConversations()">
+            <span class="live-indicator"></span> Refresh
+        </button>
+
+        <div id="conversations"></div>
+    </div>
+
+    <script>
+        async function loadConversations() {
+            try {
+                const res = await fetch('/api/conversations');
+                const data = await res.json();
+
+                document.getElementById('total-count').textContent = data.conversations.length;
+                document.getElementById('audio-count').textContent =
+                    data.conversations.filter(c => c.audio_url).length;
+
+                const container = document.getElementById('conversations');
+
+                if (data.conversations.length === 0) {
+                    container.innerHTML = '<div class="empty">No conversations yet.<br>Start speaking Portuguese with Omi!</div>';
+                    return;
+                }
+
+                container.innerHTML = data.conversations.map(conv => `
+                    <div class="conversation">
+                        <div class="time">${new Date(conv.timestamp).toLocaleString()}</div>
+                        <div class="original">${escapeHtml(conv.original)}</div>
+                        <div class="suggestion">${formatSuggestion(conv.suggestion)}</div>
+                        ${conv.portuguese_phrase ? `
+                            <div class="portuguese-phrase">💬 "${escapeHtml(conv.portuguese_phrase)}"</div>
+                        ` : ''}
+                        ${conv.audio_url ? `
+                            <div class="audio-player">
+                                <audio controls src="${conv.audio_url}"></audio>
+                            </div>
+                        ` : '<div class="no-audio">No audio generated</div>'}
+                    </div>
+                `).join('');
+            } catch (err) {
+                console.error('Failed to load:', err);
+            }
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function formatSuggestion(text) {
+            return escapeHtml(text)
+                .replace(/🔄/g, '<br>🔄')
+                .replace(/💬/g, '<br>💬')
+                .replace(/🇧🇷/g, '<br>🇧🇷');
+        }
+
+        // Load on start
+        loadConversations();
+
+        // Auto-refresh every 10 seconds
+        setInterval(loadConversations, 10000);
+    </script>
+</body>
+</html>
+    """
+    return HTMLResponse(content=html)
 
 
 if __name__ == "__main__":
