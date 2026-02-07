@@ -7,6 +7,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY webhook/ ./webhook/
 
-EXPOSE 8000
+EXPOSE 3000
 
 CMD ["python", "webhook/server.py"]

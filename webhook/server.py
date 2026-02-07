@@ -154,4 +154,5 @@ if __name__ == "__main__":
     print("📡 Webhook URL: http://localhost:8000/webhook")
     print("🔗 Use ngrok to expose: ngrok http 8000\n")
 
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    port = int(os.getenv("PORT", 3000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
